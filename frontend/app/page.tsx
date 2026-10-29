@@ -98,7 +98,7 @@ export default function MastoidLabApp() {
         {currentStep === 1 && (
           <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-300">
             <div className="text-center space-y-2">
-              <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">
+              <h2 className="text-3xl font-extrabold text-[#467975] tracking-tight">
                 Perjelas citra CT Anda
               </h2>
               <p className="text-slate-400 text-sm max-w-xl mx-auto">
@@ -144,6 +144,163 @@ export default function MastoidLabApp() {
                 <span className="text-xs font-semibold text-[#0D7A75]">03</span>
                 <h4 className="font-semibold text-sm text-slate-800">Tinjau dan ekspor</h4>
                 <p className="text-xs text-slate-400">Bandingkan citra asli dan hasil, lalu simpan hasilnya.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {currentStep === 2 && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div>
+              <h2 className="text-3xl font-extrabold text-[#467975] tracking-tight">
+                Atur pemroses citra
+              </h2>
+              <p className="text-slate-400 text-sm mt-1">
+                Tinjau file yang diunggah dan pilih metode untuk meningkatkan visualisasi citra CT.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-sm">
+                <div className="flex justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-[#E6F7F5] text-[#467975] rounded-xl">
+                      <FileText className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-[#467975] text-base">
+                        mastoid_scan.dcm
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        Citra DICOM • 512 x 512 px
+                      </p>
+                    </div>
+                  </div>
+                  <span className="bg-[#E6F7F5] text-[#0D7A75] text-xs font-medium px-8 py-3 rounded-xl">
+                    File tervalidasi
+                  </span>
+                </div>
+
+                <div className="bg-[#0B0F17] rounded-xl h-112 flex flex-col items-center justify-center text-slate-400 space-y-2 relative overflow-hidden">
+                  <div className="text-slate-500 tracking-widest text-lg font-mono">
+                    [ ]
+                  </div>
+                  <p className="text-white text-sm font-medium">
+                    Pratinjau citra asli
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Penampil citra DICOM
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <p className="text-xs text-slate-400">
+                    Tinjaui citra sebelum melanjutkan
+                  </p>
+                  <button
+                    onClick={() => setCurrentStep(1)}
+                    className="border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium px-4 py-2 rounded-lg transition">
+                    Ganti file
+                  </button>
+                </div>
+              </div>
+
+              <div className="lg:col-span-6 space-y-4">
+                <div>
+                  <h3 className="font-semibold text-slate-800 text-base">
+                    Pilih metode pemrosesan
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Pilih satu metode untuk diterapkan pada citra Anda.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  {methods.map((method) => {
+                    const isSelected = selectedMethod === method.id;
+                    return (
+                      <div
+                        key={method.id}
+                        onClick={() => setSelectedMethod(method.id)}
+                        className={`p-4 rounded-xl border cursor-pointer transition flex items-start justify-between ${isSelected ? "bg-[#EAF8F6] border-[#0D7A75]" : "bg-white border-slate-200 hover:border-slate-300"}`}>
+                        <div>
+                          <h4 className="text-sm font-semibld text-slate-800">
+                            {method.tittle}
+                          </h4>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {method.desc}
+                          </p>
+                        </div>
+                        <div className="mt-0.5">
+                          {isSelected ? (
+                            <div className="w-5 h-5 rounded-full bg-[#0D7A75] text-white flex items-center justify-center text-xs">
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            </div>
+                          ) : (
+                            <div className="w-5 h-5 rounded-full border bordre-slate-300 bg-slate-100"></div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="bg-[#F8FAFC] border border-slate-100 rounded-xl p-4 space-y-1">
+                  <p className="text-xs font-medium text-slate-700">
+                    Window Width: 2000 • Window Level: 400
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Parameter dari file unggahan. Periksa kembali sebelum memproses
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                  <p className="text-xs tex-slate-400">
+                    Pemroses menggunakan layanan pemroses citra yang terhubung
+                  </p>
+                  <button
+                    onClick={() => setCurrentStep(3)}
+                    className="bg-[#0D7A75] hover:bg-[#0B6863] text-white text-sm font-medium px-8 py-2.5 rounded-lg transition-all shadow-sm">
+                    Proses Citra
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {currentStep === 3 && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div>
+              <h2 className="text-3xl font-extrabold text-[#0D7A75] tracking-tight">
+                Hasil pemroses citra
+              </h2>
+              <p className="text-slate-400 text-sm mt-1">
+                Bandingkan citra asli dengan hasil pemroses sebelum menyimpan hasilnya.
+              </p>
+            </div>
+
+            <div className="bg-[#EAF8F6] border border-[#0D7A75] /20 rounded-xl p-4">
+              <h4 className="text-sm font-semibold text-[#0D7A75]">
+                Citra berhasil diproses
+              </h4>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Metode: Peningkatan kontras (Contrast Enhancement) • mastoid_scan.dcm
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <h3 className="font-semibold text-slate-800 text-sm">
+                  Citra asli
+                </h3>
+                <div className="bg-[#0B0F17] rounded-2xl h-80 flex flex-col items-center justify-center text-slate-400 space-y-2">
+                  <div className="text-slate-500 tracking-widest text-lg font-mono">
+                    [ ]
+                  </div>
+                  <p className="text-white text-sm font-medium">CT asli</p>
+                  <p className="text-xs text-slate-500">Citra sumben tanpa pemrosesan</p>
+                </div>
               </div>
             </div>
           </div>
