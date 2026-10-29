@@ -302,6 +302,35 @@ export default function MastoidLabApp() {
                   <p className="text-xs text-slate-500">Citra sumben tanpa pemrosesan</p>
                 </div>
               </div>
+              <div className="space-y-2">
+                <h3 className="font-semibold text-slate-800 text-sm">
+                  Hasil pemrosesan
+                </h3>
+                <div className="bg-[#0B0F17] rounded-2xl h-80 flex flex-col items-center justify-center text-slate-400 space-y-2">
+                  <div className="text-slate-500 tracking-widest text-lg font-mono">
+                    [ ]
+                  </div>
+                  <p className="text-white text-sm font-medium">CT asli</p>
+                  <p className="text-xs text-slate-500">CT setelah peningkatan kontras</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-xol sm:flex-row items-center justify-between gap-4 border-t border-slate-100">
+              <div className="flex items-center gap-4 w-full sm:w-auto">
+                <button
+                  onClick={() => setCurrentStep(1)}
+                  className="border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-5 py-2.5 rounded-lg transition">
+                  Proses file lain
+                </button>
+                <p className="text-xs text-slate-400 hidden lg:block">
+                  Tinjau kedua citra sebagai referensi visual penelitian Anda.
+                </p>
+              </div>
+
+              <button className="w-full sm:w-auto bg-[#0D7A75] hover:bg-[#0B6863] text-white font-medium px-8 py-2.5 rounded-lg transition-all shadow-sm flex items-center justify-center gap-2">
+                Unduh hasil
+              </button>
             </div>
           </div>
         )}
