@@ -19,6 +19,7 @@ export default function MastoidLabApp() {
 
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [fusionWeight, setFusionWeight] = useState<number>(50);
+  const [fusionTarget, setFusionTarget] = useState<string>("hpf1");
 
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
@@ -519,49 +520,36 @@ export default function MastoidLabApp() {
 
                   {selectedMethod === "fusi" ? (
                     <div className="bg-[#EAF8F6] border border-[#0D7A75]/30 rounded-xl p-4 space-y-3 animate-in fade-in duration-200">
-                      <div className="flex justify-between items-center text-xs font-medium text-slate-700">
-                        <span className="font-semibold text-[#0D7A75]">
-                          Parameter Bobot Fusi Citra
-                        </span>
-                        <div className="flex items-center gap-1.5 font-mono text-[#0D7A75] text-xs">
-                          {/* Input Manual Persentase Filtered */}
-                          <div className="flex items-center bg-white border border-slate-200 rounded px-1.5 py-0.5 focus-within:border-[#0D7A75] transition">
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={fusionWeight}
-                              onChange={(e) => {
-                                const val = Number(e.target.value);
-                                if (val < 0) setFusionWeight(0);
-                                else if (val > 100) setFusionWeight(100);
-                                else setFusionWeight(val);
-                              }}
-                              className="w-8 text-right focus:outline-none text-[#0D7A75] font-semibold font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                            />
-                            <span className="text-slate-400 ml-0.5">%</span>
-                          </div>
-                          <span className="text-slate-500 font-sans">Filtered /</span>
-                          {/* Persentase Asli (Otomatis 100 - fusionWeight) */}
-                          <span className="bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600 font-semibold">
-                            {100 - fusionWeight}% Asli
-                          </span>
-                        </div>
+                      <div>
+                        <h4 className="text-xs font-semibold text-[#0D7A75]">
+                          Pilih Pasangan Fusi (Citra Asli + Filter)
+                        </h4>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Pilih jenis pemfilteran yang akan digabungkan dengan citra CT asli.
+                        </p>
                       </div>
 
-                      {/* Range Slider dengan Thumb Bulat Sempurna */}
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={fusionWeight}
-                        onChange={(e) => setFusionWeight(Number(e.target.value))}
-                        className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#0D7A75] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-[#0D7A75] [&::-webkit-slider-thumb]:rounded-full [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:bg-[#0D7A75] [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-none"
-                      />
-
-                      <p className="text-[11px] text-slate-500">
-                        Geser slider atau ketik angka secara manual untuk mengatur tingkat proporsi penggabungan detail filter terhadap citra CT asli.
-                      </p>
+                      {/* OPSI PILIHAN KOMBINASI FUSI */}
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        {[
+                          { id: "hpf1", label: "HPF Kernel 1 (Default)" },
+                          { id: "hpf2", label: "HPF Kernel 2" },
+                          { id: "hpf3", label: "HPF Kernel 3" },
+                          { id: "kontras", label: "Peningkatan Kontras" },
+                        ].map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setFusionTarget(item.id)}
+                            className={`p-2.5 rounded-lg border text-left transition font-medium ${fusionTarget === item.id
+                              ? "bg-[#0D7A75] text-white border-[#0D7A75]"
+                              : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                              }`}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   ) : (
                     <div className="bg-[#F8FAFC] border border-slate-100 rounded-xl p-4 space-y-1">
