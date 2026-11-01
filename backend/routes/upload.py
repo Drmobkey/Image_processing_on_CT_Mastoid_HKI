@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from uuid import uuid4
 import json
@@ -177,28 +178,35 @@ def upload_dicom():
         saved_files = output_data["saved_files"]
 
         # 9. Membuat URL preview dan download.
+        # Jika BACKEND_URL diatur di .env (misal saat deploy https://api.domain.com), gunakan URL tersebut.
+        # Jika tidak, gunakan url_for(_external=True) bawaan Flask.
+        backend_public_url = os.getenv("BACKEND_URL", "").rstrip("/")
+
         for result_name, files in saved_files.items():
 
-            files["preview_url"] = url_for(
-                "upload.preview_file",
-                job_id=job_id,
-                filename=files["png"],
-                _external=True
-            )
-
-            files["download_png_url"] = url_for(
-                "upload.download_file",
-                job_id=job_id,
-                filename=files["png"],
-                _external=True
-            )
-
-            files["download_dicom_url"] = url_for(
-                "upload.download_file",
-                job_id=job_id,
-                filename=files["dicom"],
-                _external=True
-            )
+            if backend_public_url:
+                files["preview_url"] = f"{backend_public_url}/preview/{job_id}/{files['png']}"
+                files["download_png_url"] = f"{backend_public_url}/download/{job_id}/{files['png']}"
+                files["download_dicom_url"] = f"{backend_public_url}/download/{job_id}/{files['dicom']}"
+            else:
+                files["preview_url"] = url_for(
+                    "upload.preview_file",
+                    job_id=job_id,
+                    filename=files["png"],
+                    _external=True
+                )
+                files["download_png_url"] = url_for(
+                    "upload.download_file",
+                    job_id=job_id,
+                    filename=files["png"],
+                    _external=True
+                )
+                files["download_dicom_url"] = url_for(
+                    "upload.download_file",
+                    job_id=job_id,
+                    filename=files["dicom"],
+                    _external=True
+                )
 
         return jsonify({
             "status": "success",

@@ -5,6 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from flask import Flask, jsonify
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from routes.health import health_bp
 from routes.upload import upload_bp
@@ -15,6 +16,9 @@ load_dotenv(BASE_DIR / ".env")
 
 # Inisialisasi aplikasi Flask
 app = Flask(__name__)
+
+# Dukungan reverse proxy (Nginx, Cloudflare, Railway, Render, Docker)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # Batas ukuran upload file (default: 50 MB)
 app.config["MAX_CONTENT_LENGTH"] = int(
@@ -66,5 +70,3 @@ if __name__ == "__main__":
         host=os.getenv("FLASK_HOST"),
         port=port
     )
-
-
