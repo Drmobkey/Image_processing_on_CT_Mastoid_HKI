@@ -1,4 +1,3 @@
-
 from pathlib import Path
 from copy import deepcopy
 from uuid import uuid4
@@ -47,7 +46,16 @@ def save_as_dicom(image, original_dicom, output_path):
     Menyimpan hasil enhancement sebagai DICOM Secondary Capture.
     Hasil ini merupakan citra turunan 8-bit, bukan CT asli.
     """
-    dicom_result = deepcopy(original_dicom)
+    try:
+        dicom_result = deepcopy(original_dicom)
+    except Exception:
+        dicom_result = pydicom.dataset.Dataset()
+        for elem in original_dicom:
+            if elem.keyword != "PixelData":
+                try:
+                    dicom_result.add(elem)
+                except Exception:
+                    pass
 
     new_sop_uid = generate_uid()
 
@@ -65,6 +73,12 @@ def save_as_dicom(image, original_dicom, output_path):
     )
     dicom_result.file_meta.MediaStorageSOPInstanceUID = new_sop_uid
     dicom_result.file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+
+    dicom_result.is_little_endian = True
+    dicom_result.is_implicit_VR = False
+
+    if not getattr(dicom_result, "preamble", None):
+        dicom_result.preamble = b"\x00" * 128
 
     # Informasi citra hasil.
     dicom_result.ImageType = ["DERIVED", "SECONDARY"]
@@ -88,10 +102,13 @@ def save_as_dicom(image, original_dicom, output_path):
     dicom_result.WindowWidth = 255
     dicom_result.WindowCenter = 127
 
-    # Hapus atribut padding CT jika ada.
-    for tag in ("PixelPaddingValue", "PixelPaddingRangeLimit"):
+    # Hapus atribut padding CT dan konfigurasi RGB jika ada.
+    for tag in ("PixelPaddingValue", "PixelPaddingRangeLimit", "PlanarConfiguration", "NumberOfFrames"):
         if tag in dicom_result:
-            del dicom_result[tag]
+            try:
+                del dicom_result[tag]
+            except Exception:
+                pass
 
     # Masukkan pixel data 8-bit.
     pixel_data = image.tobytes()
@@ -102,10 +119,16 @@ def save_as_dicom(image, original_dicom, output_path):
 
     dicom_result.PixelData = pixel_data
 
-    dicom_result.save_as(
-        str(output_path),
-        enforce_file_format=True
-    )
+    try:
+        dicom_result.save_as(
+            str(output_path),
+            enforce_file_format=True
+        )
+    except Exception:
+        dicom_result.save_as(
+            str(output_path),
+            enforce_file_format=False
+        )
 
 
 def save_enhancement_outputs(
@@ -120,7 +143,6 @@ def save_enhancement_outputs(
     Setiap proses upload mendapatkan folder tersendiri agar
     nama file dari upload yang berbeda tidak saling menimpa.
     """
-
     if not results:
         raise ValueError("Tidak ada hasil enhancement untuk disimpan.")
 
@@ -136,8 +158,6 @@ def save_enhancement_outputs(
 
     saved_files = {}
 
-    # Tidak menggunakan daftar hasil yang statis.
-    # Semua hasil dari research atau exploration akan disimpan.
     for result_name, result_image in results.items():
 
         image = prepare_image(result_image)

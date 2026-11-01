@@ -9,47 +9,58 @@ from scipy.signal import convolve2d
 
 def read_dicom(file_path):
     """
-    Membaca file DICOM dan memvalidasi modalitasnya.
+    Membaca file DICOM dan memvalidasi kelayakannya.
     """
-
-    dicom_data = pydicom.dcmread(file_path)
-
+    dicom_data = pydicom.dcmread(file_path, force=True)
     validate_dicom(dicom_data)
-
     return dicom_data
 
 
 def validate_dicom(dicom_data):
     """
-    Memvalidasi apakah file DICOM merupakan citra CT.
+    Memvalidasi ketersediaan data pada file DICOM.
+    Mendukung modalitas CT secara optimal, serta tetap menerima modalitas lain
+    (CR, MR, DX, OT) secara fleksibel agar semua file DICOM dapat diproses.
     """
-
-    modality = getattr(dicom_data, "Modality", None)
-
-    if modality != "CT":
-        raise ValueError(
-            "File DICOM harus memiliki modality CT"
-        )
-
+    if dicom_data is None:
+        raise ValueError("File DICOM tidak dapat dibaca atau rusak.")
     return True
 
 
 def validate_pixel_array(pixel_array):
     """
-    Memvalidasi dimensi matriks piksel DICOM.
+    Memvalidasi dan menormalkan dimensi matriks piksel DICOM ke citra grayscale 2D.
+    Mendukung citra 2D, 3D multi-frame, maupun format citra RGB (3 channel).
     """
+    if pixel_array is None or pixel_array.size == 0:
+        raise ValueError("Matriks piksel DICOM kosong.")
+
+    # 1. Jika citra berbentuk RGB atau RGBA (misal shape (H, W, 3) atau (H, W, 4))
+    if pixel_array.ndim == 3 and pixel_array.shape[2] in (3, 4):
+        r = pixel_array[:, :, 0].astype(np.float32)
+        g = pixel_array[:, :, 1].astype(np.float32)
+        b = pixel_array[:, :, 2].astype(np.float32)
+        pixel_array = (0.299 * r + 0.587 * g + 0.114 * b)
+
+    # 2. Jika citra berdimensi single-frame (1, H, W)
+    elif pixel_array.ndim == 3 and pixel_array.shape[0] == 1:
+        pixel_array = pixel_array[0]
+
+    # 3. Jika citra berdimensi (H, W, 1)
+    elif pixel_array.ndim == 3 and pixel_array.shape[2] == 1:
+        pixel_array = pixel_array[:, :, 0]
+
+    # 4. Jika citra multi-frame 3D (N, H, W), ambil frame tengah
+    elif pixel_array.ndim == 3:
+        mid_idx = pixel_array.shape[0] // 2
+        pixel_array = pixel_array[mid_idx]
 
     if pixel_array.ndim != 2:
         raise ValueError(
-            "Citra DICOM harus berupa citra grayscale 2D"
+            f"Citra DICOM tidak dapat dikonversi ke grayscale 2D (dimensi: {pixel_array.shape})"
         )
 
-    if pixel_array.size == 0:
-        raise ValueError(
-            "Matriks piksel DICOM kosong"
-        )
-
-    return True
+    return pixel_array
 
 
 # ==========================================
@@ -58,17 +69,36 @@ def validate_pixel_array(pixel_array):
 
 def get_dicom_metadata(dicom_data):
     """
-    Mengambil metadata penting dari file DICOM.
+    Mengambil metadata penting dari file DICOM secara aman dan serializable (JSON safe).
     """
+    def safe_numeric(val, default=None):
+        if val is None:
+            return default
+        # Menangani pydicom MultiValue atau tuple/list
+        if hasattr(val, "__iter__") and not isinstance(val, (str, bytes)):
+            try:
+                items = list(val)
+                val = items[0] if items else default
+            except Exception:
+                return default
+        if val is None:
+            return default
+        try:
+            val_float = float(val)
+            if val_float.is_integer():
+                return int(val_float)
+            return val_float
+        except (ValueError, TypeError):
+            return str(val)
 
     metadata = {
-        "modality": getattr(dicom_data, "Modality", None),
-        "rows": getattr(dicom_data, "Rows", None),
-        "columns": getattr(dicom_data, "Columns", None),
-        "rescale_slope": getattr(dicom_data, "RescaleSlope", 1),
-        "rescale_intercept": getattr(dicom_data, "RescaleIntercept", 0),
-        "window_width": getattr(dicom_data, "WindowWidth", None),
-        "window_center": getattr(dicom_data, "WindowCenter", None)
+        "modality": str(getattr(dicom_data, "Modality", "")) or "CT",
+        "rows": safe_numeric(getattr(dicom_data, "Rows", None)),
+        "columns": safe_numeric(getattr(dicom_data, "Columns", None)),
+        "rescale_slope": safe_numeric(getattr(dicom_data, "RescaleSlope", 1), default=1),
+        "rescale_intercept": safe_numeric(getattr(dicom_data, "RescaleIntercept", 0), default=0),
+        "window_width": safe_numeric(getattr(dicom_data, "WindowWidth", None)),
+        "window_center": safe_numeric(getattr(dicom_data, "WindowCenter", None))
     }
 
     return metadata
@@ -82,11 +112,8 @@ def get_dicom_pixel_array(dicom_data):
     """
     Mengambil dan memvalidasi matriks piksel DICOM.
     """
-
     pixel_array = dicom_data.pixel_array
-
-    validate_pixel_array(pixel_array)
-
+    pixel_array = validate_pixel_array(pixel_array)
     return pixel_array
 
 
@@ -98,15 +125,24 @@ def convert_to_hu(pixel_array, rescale_slope, rescale_intercept):
     """
     Mengonversi nilai piksel DICOM CT menjadi HU.
     """
-
     pixel_array = np.asarray(
         pixel_array,
         dtype=np.float32
     )
 
+    try:
+        slope = float(rescale_slope) if rescale_slope is not None else 1.0
+    except (ValueError, TypeError):
+        slope = 1.0
+
+    try:
+        intercept = float(rescale_intercept) if rescale_intercept is not None else 0.0
+    except (ValueError, TypeError):
+        intercept = 0.0
+
     hu_image = (
-        pixel_array * float(rescale_slope)
-        + float(rescale_intercept)
+        pixel_array * slope
+        + intercept
     )
 
     return hu_image
@@ -125,7 +161,6 @@ def apply_window_level(
     Melakukan Window Width dan Window Level
     berdasarkan algoritma pada modul penelitian.
     """
-
     lower_limit = window_level - (window_width / 2)
     upper_limit = window_level + (window_width / 2)
 
@@ -165,7 +200,6 @@ def apply_contrast_enhancement(image):
     Meningkatkan kontras citra menggunakan
     prinsip imadjust MATLAB.
     """
-
     normalized_image = (
         image.astype(np.float32) / 255.0
     )
@@ -200,7 +234,6 @@ def apply_high_pass_filter(image, kernel):
     Menerapkan High Pass Filter menggunakan
     konvolusi 2D.
     """
-
     image = np.asarray(
         image,
         dtype=np.float64
@@ -236,7 +269,6 @@ def apply_image_fusion(original_image, filtered_image):
     Menggabungkan citra hasil windowing dengan
     citra hasil High Pass Filter Kernel 1.
     """
-
     original_image = np.asarray(
         original_image,
         dtype=np.uint16

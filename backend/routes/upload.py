@@ -1,4 +1,3 @@
-
 from pathlib import Path
 from uuid import uuid4
 import json
@@ -222,15 +221,13 @@ def upload_dicom():
             "message": "File yang diunggah bukan DICOM yang valid."
         }), 400
 
-    except Exception:
-        # Detail error internal tidak dikirim ke pengguna.
-        # Untuk debugging, gunakan logger server.
+    except Exception as error:
         import logging
-        logging.exception("Terjadi kesalahan saat memproses DICOM.")
+        logging.exception("Terjadi kesalahan saat memproses DICOM: %s", str(error))
 
         return jsonify({
             "status": "error",
-            "message": "Terjadi kesalahan saat memproses citra."
+            "message": f"Terjadi kesalahan saat memproses citra: {str(error)}"
         }), 500
 
     finally:
