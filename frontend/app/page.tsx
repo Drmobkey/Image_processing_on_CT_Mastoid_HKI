@@ -411,11 +411,11 @@ export default function MastoidLabApp() {
             <div className="flex items-center gap-3">
               {/* Judul Halaman Menggunakan Font RIGHTEOUS */}
               <h1 className="text-3xl font-normal tracking-wider bg-gradient-to-r from-teal-400 via-emerald-300 to-cyan-400 bg-clip-text text-transparent font-[family-name:var(--font-righteous)]">
-                MASTOIDLAB
+                DRiP
               </h1>
             </div>
             <p className="text-xs text-slate-400 font-medium">
-              Platform Peningkatan & Analisis Citra Radiografi CT Tulang Mastoid
+              Digital Radiology Image Processing
             </p>
           </div>
 
@@ -498,9 +498,12 @@ export default function MastoidLabApp() {
           <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-300">
             <div className="text-center space-y-2">
               <h2 className="text-3xl font-extrabold bg-gradient-to-r from-teal-300 via-emerald-200 to-cyan-300 bg-clip-text text-transparent tracking-tight">
-                Tingkatkan Kualitas Citra CT Mastoid
+                Explore Images. Enhance Details. Discover Insights.
               </h2>
-              <p className="text-slate-400 text-sm max-w-xl mx-auto">
+              <p className="text-slate-400 text-lg max-w-5xl mx-auto pt-8">
+                Platform pembelajaran interaktif untuk mengeksplorasi teknik pengelolaan citra radiologi digital melalui peningkatan kontras (contrast enhancement), pemfilteran citra (image filtering), dan fusi citra (image fusion). Aplikasi ini membantu mahasiswa memahami prinsip, proses, dan dampak setiap teknik terhadap karakteristik visual citra medis dari berbagai modalitas radiologi.
+              </p>
+              <p className="text-slate-400 text-sm max-w-3xl mx-auto pt-16">
                 Unggah berkas DICOM CT Scan (.dcm), terapkan algoritma peningkatan kontras & penajaman frekuensi tinggi, lalu bandingkan hasilnya secara interaktif.
               </p>
             </div>
