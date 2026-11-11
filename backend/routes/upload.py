@@ -3,6 +3,7 @@ from pathlib import Path
 from uuid import uuid4
 import json
 
+import numpy as np
 from flask import (
     Blueprint,
     request,
@@ -110,6 +111,9 @@ def upload_dicom():
         # 5. Membaca pilihan operasi eksplorasi.
         operations = None
         fusion_kernels = None
+        custom_kernel_np = None
+        contrast_min = 0.2
+        contrast_max = 0.9
 
         if mode == "exploration":
             operations_raw = request.form.get("operations", "[]")
@@ -134,6 +138,47 @@ def upload_dicom():
                 return jsonify({
                     "status": "error",
                     "message": "fusion_kernels harus berupa daftar."
+                }), 400
+
+            # Membaca kernel kustom (3×3 JSON array) jika dikirim
+            custom_kernel_raw = request.form.get("custom_kernel", None)
+            if custom_kernel_raw:
+                try:
+                    kernel_list = json.loads(custom_kernel_raw)
+                    if (
+                        isinstance(kernel_list, list)
+                        and len(kernel_list) == 3
+                        and all(
+                            isinstance(row, list) and len(row) == 3
+                            for row in kernel_list
+                        )
+                    ):
+                        custom_kernel_np = np.array(kernel_list, dtype=np.float32)
+                    else:
+                        return jsonify({
+                            "status": "error",
+                            "message": "custom_kernel harus berupa matriks 3×3."
+                        }), 400
+                except (json.JSONDecodeError, ValueError):
+                    return jsonify({
+                        "status": "error",
+                        "message": "Format custom_kernel tidak valid."
+                    }), 400
+
+            # Membaca parameter kontras kustom
+            try:
+                contrast_min = float(request.form.get("contrast_min", 0.2))
+                contrast_max = float(request.form.get("contrast_max", 0.9))
+            except ValueError:
+                return jsonify({
+                    "status": "error",
+                    "message": "contrast_min dan contrast_max harus berupa angka."
+                }), 400
+
+            if not (0.0 <= contrast_min < contrast_max <= 1.0):
+                return jsonify({
+                    "status": "error",
+                    "message": "contrast_min harus < contrast_max, keduanya antara 0.0 dan 1.0."
                 }), 400
 
         # 6. Membaca parameter windowing.
@@ -163,7 +208,10 @@ def upload_dicom():
             operations=operations,
             window_width=window_width,
             window_level=window_level,
-            fusion_kernels=fusion_kernels
+            fusion_kernels=fusion_kernels,
+            custom_kernel=custom_kernel_np,
+            contrast_min=contrast_min,
+            contrast_max=contrast_max
         )
 
         # 8. Menyimpan seluruh hasil enhancement.

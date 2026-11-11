@@ -119,7 +119,10 @@ def exploration_mode(
     operations,
     window_width=2000,
     window_level=400,
-    fusion_kernels=None
+    fusion_kernels=None,
+    custom_kernel=None,
+    contrast_min=0.2,
+    contrast_max=0.9
 ):
 
     allowed_operations = {
@@ -128,7 +131,8 @@ def exploration_mode(
         "hpf_1",
         "hpf_2",
         "hpf_3",
-        "fusion"
+        "fusion",
+        "custom_hpf"
     }
 
     operations = set(operations or [])
@@ -159,7 +163,8 @@ def exploration_mode(
             "hpf_1",
             "hpf_2",
             "hpf_3",
-            "fusion"
+            "fusion",
+            "custom_hpf"
         })
     )
 
@@ -167,7 +172,9 @@ def exploration_mode(
 
     if needs_contrast:
         contrast_image = apply_contrast_enhancement(
-            windowed_image
+            windowed_image,
+            lower_input=contrast_min,
+            upper_input=contrast_max
         )
 
     if "contrast" in operations:
@@ -187,6 +194,14 @@ def exploration_mode(
 
             results[kernel_name] = hpf_results[kernel_name]
 
+    # Kernel kustom (3×3) jika pengguna menyediakan
+    if "custom_hpf" in operations and custom_kernel is not None:
+        hpf_results["custom_hpf"] = apply_high_pass_filter(
+            contrast_image,
+            custom_kernel
+        )
+        results["custom_hpf"] = hpf_results["custom_hpf"]
+
     # Fusion dapat menggunakan satu atau beberapa kernel
     if "fusion" in operations:
 
@@ -202,8 +217,11 @@ def exploration_mode(
                 "Pilihan kernel fusion tidak boleh duplikat"
             )
 
+        valid_fusion_kernels = set(KERNELS.keys()) | (
+            {"custom_hpf"} if custom_kernel is not None else set()
+        )
         invalid_kernels = (
-            set(fusion_kernels) - set(KERNELS.keys())
+            set(fusion_kernels) - valid_fusion_kernels
         )
 
         if invalid_kernels:
@@ -216,10 +234,16 @@ def exploration_mode(
 
             if kernel_name not in hpf_results:
 
-                hpf_results[kernel_name] = apply_high_pass_filter(
-                    contrast_image,
-                    KERNELS[kernel_name]
-                )
+                if kernel_name == "custom_hpf" and custom_kernel is not None:
+                    hpf_results[kernel_name] = apply_high_pass_filter(
+                        contrast_image,
+                        custom_kernel
+                    )
+                elif kernel_name in KERNELS:
+                    hpf_results[kernel_name] = apply_high_pass_filter(
+                        contrast_image,
+                        KERNELS[kernel_name]
+                    )
 
                 results[kernel_name] = hpf_results[kernel_name]
 
@@ -251,7 +275,10 @@ def enhance_image(
     operations=None,
     window_width=2000,
     window_level=400,
-    fusion_kernels=None
+    fusion_kernels=None,
+    custom_kernel=None,
+    contrast_min=0.2,
+    contrast_max=0.9
 ):
 
     if mode == "research":
@@ -265,7 +292,10 @@ def enhance_image(
             operations=operations,
             window_width=window_width,
             window_level=window_level,
-            fusion_kernels=fusion_kernels
+            fusion_kernels=fusion_kernels,
+            custom_kernel=custom_kernel,
+            contrast_min=contrast_min,
+            contrast_max=contrast_max
         )
 
     else:

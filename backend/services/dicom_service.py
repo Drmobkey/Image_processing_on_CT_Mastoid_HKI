@@ -195,17 +195,18 @@ def apply_window_level(
 # 6. CONTRAST ENHANCEMENT
 # ==========================================
 
-def apply_contrast_enhancement(image):
+def apply_contrast_enhancement(image, lower_input=0.2, upper_input=0.9):
     """
     Meningkatkan kontras citra menggunakan
     prinsip imadjust MATLAB.
+
+    Parameter:
+        lower_input: batas bawah normalisasi (0.0 – 1.0), default 0.2
+        upper_input: batas atas normalisasi (0.0 – 1.0), default 0.9
     """
     normalized_image = (
         image.astype(np.float32) / 255.0
     )
-
-    lower_input = 0.2
-    upper_input = 0.9
 
     clipped_image = np.clip(
         normalized_image,

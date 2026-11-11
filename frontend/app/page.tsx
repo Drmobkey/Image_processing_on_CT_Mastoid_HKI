@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import {
   Upload,
   FileText,
@@ -17,7 +17,12 @@ import {
   Layers,
   ZoomIn,
   ZoomOut,
-  Maximize2
+  Maximize2,
+  Grid3x3,
+  Sliders,
+  CheckSquare,
+  Square,
+  HelpCircle
 } from "lucide-react";
 
 // Tipe data hasil proses per item dari backend
@@ -43,6 +48,27 @@ interface DicomMetadata {
 }
 
 export default function MastoidLabApp() {
+  // Helper mendapatkan URL backend utama dan fallback
+  const getApiUrls = (): string[] => {
+    const urls: string[] = [];
+    if (typeof window !== "undefined") {
+      const hostname = window.location.hostname || "localhost";
+      // Gunakan hostname yang sama dengan yang diakses pengguna di browser (misal: 192.168.1.36, localhost, atau 127.0.0.1)
+      const currentHostApi = `http://${hostname}:5001`;
+      urls.push(currentHostApi);
+      if (hostname !== "localhost") urls.push("http://localhost:5001");
+      if (hostname !== "127.0.0.1") urls.push("http://127.0.0.1:5001");
+    }
+    if (process.env.NEXT_PUBLIC_API_URL) {
+      const envUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "");
+      if (!urls.includes(envUrl)) urls.push(envUrl);
+    }
+    if (urls.length === 0) {
+      urls.push("http://127.0.0.1:5001", "http://localhost:5001");
+    }
+    return urls;
+  };
+
   const API_BASE_URL =
     process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5001";
 
@@ -58,17 +84,53 @@ export default function MastoidLabApp() {
     modality: string;
   } | null>(null);
 
-  // Mode Pemrosesan
+  // ==========================================
+  // STATE MODE 1 & MODE 2
+  // ==========================================
   const [processingMode, setProcessingMode] = useState<"research" | "exploration">(
     "research"
   );
   const [customWW, setCustomWW] = useState<number>(2000);
   const [customWL, setCustomWL] = useState<number>(400);
 
+  // Mode 1: Metode Aktif yang difokuskan saat melihat hasil
+  const [selectedResearchMethod, setSelectedResearchMethod] = useState<string>("kontras");
+
+  // Mode 2: Eksplorasi Bebas Pengguna
+  // Pengguna bebas memilih proses mana yang aktif
+  const [explorationOps, setExplorationOps] = useState<{
+    contrast: boolean;
+    hpf_1: boolean;
+    hpf_2: boolean;
+    hpf_3: boolean;
+    fusion: boolean;
+  }>({
+    contrast: true,
+    hpf_1: true,
+    hpf_2: true,
+    hpf_3: true,
+    fusion: true,
+  });
+
+  // Mode 2: Kernel yang digunakan untuk Fusi (Kernel 1, Kernel 2, atau Kernel 3)
+  const [fusionTarget, setFusionTarget] = useState<string>("hpf1");
+
+  // Mode 2: Fitur Tambahan Matriks Filter Kustom (3×3)
+  const [showCustomMatrix, setShowCustomMatrix] = useState<boolean>(false);
+  const [useCustomKernel, setUseCustomKernel] = useState<boolean>(false);
+  const [customMatrix, setCustomMatrix] = useState<number[][]>([
+    [-1, -1, -1],
+    [-1, 8, -1],
+    [-1, -1, -1],
+  ]);
+  const [matrixPreset, setMatrixPreset] = useState<string>("kernel_1");
+
+  // Mode 2: Parameter Contrast Kustom
+  const [contrastMin, setContrastMin] = useState<number>(0.2);
+  const [contrastMax, setContrastMax] = useState<number>(0.9);
+
   // State Hasil Backend
   const [resultsData, setResultsData] = useState<Record<string, ProcessResultItem> | null>(null);
-  const [selectedMethod, setSelectedMethod] = useState<string>("kontras");
-  const [fusionTarget, setFusionTarget] = useState<string>("hpf1");
   const [activeResultKey, setActiveResultKey] = useState<string>("contrast");
 
   // State Zoom Page 2 & Page 3
@@ -91,7 +153,27 @@ export default function MastoidLabApp() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Metode Pemrosesan dengan Aksen Dark Theme Berwarna
+  // Hitung jumlah bobot matriks kustom
+  const customMatrixSum = useMemo(() => {
+    return customMatrix.flat().reduce((acc, curr) => acc + (Number(curr) || 0), 0);
+  }, [customMatrix]);
+
+  // State untuk menampilkan matriks kernel pada kartu
+  const [showMatrixCard, setShowMatrixCard] = useState<Record<string, boolean>>({
+    hp1: false,
+    hp2: false,
+    hp3: false,
+  });
+
+  const toggleShowMatrix = (cardId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMatrixCard((prev) => ({
+      ...prev,
+      [cardId]: !prev[cardId],
+    }));
+  };
+
+  // Metode Pemrosesan dengan Aksen Dark Theme Berwarna (Sesuai Desain Asli)
   const methods = [
     {
       id: "kontras",
@@ -101,6 +183,8 @@ export default function MastoidLabApp() {
       colorBadge: "bg-amber-950/80 text-amber-300 border-amber-500/40",
       activeRing: "border-amber-500/80 bg-amber-950/20 shadow-amber-900/30",
       dotColor: "bg-amber-400",
+      matrix: null,
+      matrixNote: null,
     },
     {
       id: "hp1",
@@ -110,6 +194,12 @@ export default function MastoidLabApp() {
       colorBadge: "bg-sky-950/80 text-sky-300 border-sky-500/40",
       activeRing: "border-sky-500/80 bg-sky-950/20 shadow-sky-900/30",
       dotColor: "bg-sky-400",
+      matrix: [
+        [-1, -1, -1],
+        [-1,  8, -1],
+        [-1, -1, -1]
+      ],
+      matrixNote: "Laplacian 8-Arah (Omnidirectional Edge)",
     },
     {
       id: "hp2",
@@ -119,6 +209,12 @@ export default function MastoidLabApp() {
       colorBadge: "bg-indigo-950/80 text-indigo-300 border-indigo-500/40",
       activeRing: "border-indigo-500/80 bg-indigo-950/20 shadow-indigo-900/30",
       dotColor: "bg-indigo-400",
+      matrix: [
+        [ 0, -1,  0],
+        [-1,  5, -1],
+        [ 0, -1,  0]
+      ],
+      matrixNote: "Laplacian 4-Arah (Crisp Edge)",
     },
     {
       id: "hp3",
@@ -128,6 +224,12 @@ export default function MastoidLabApp() {
       colorBadge: "bg-purple-950/80 text-purple-300 border-purple-500/40",
       activeRing: "border-purple-500/80 bg-purple-950/20 shadow-purple-900/30",
       dotColor: "bg-purple-400",
+      matrix: [
+        [ 1, -2,  1],
+        [-2,  5, -2],
+        [ 1, -2,  1]
+      ],
+      matrixNote: "Diagonal High-Pass (Mikro-Struktur)",
     },
     {
       id: "fusi",
@@ -137,6 +239,8 @@ export default function MastoidLabApp() {
       colorBadge: "bg-teal-950/80 text-teal-300 border-teal-500/40",
       activeRing: "border-teal-500/80 bg-teal-950/20 shadow-teal-900/30",
       dotColor: "bg-teal-400",
+      matrix: null,
+      matrixNote: null,
     },
   ];
 
@@ -158,7 +262,7 @@ export default function MastoidLabApp() {
   const handleZoomOutP3 = () => setZoomLevelP3((prev) => Math.max(prev - 0.25, 0.75));
   const handleResetZoomP3 = () => setZoomLevelP3(1);
 
-  // 1. FUNGSI UNGGAH FILE
+  // 1. FUNGSI UNGGAH FILE (STEP 1)
   const processUploadFile = (file: File) => {
     if (!file) return;
 
@@ -166,10 +270,11 @@ export default function MastoidLabApp() {
     setUploadProgress(0);
 
     const fileNameLower = file.name.toLowerCase();
-    if (!fileNameLower.endsWith(".dcm") && !fileNameLower.endsWith(".dicom")) {
+    const isDicomExt = fileNameLower.endsWith(".dcm") || fileNameLower.endsWith(".dicom");
+    if (!isDicomExt && file.name.includes(".")) {
       setUploadStatus("error");
       setUploadError(
-        "Format file tidak didukung. Harap unggah file .dcm atau .dicom (DICOM)"
+        `Format berkas "${file.name}" tidak didukung. Harap unggah berkas dengan ekstensi .dcm atau .dicom (CT Mastoid).`
       );
       return;
     }
@@ -177,108 +282,113 @@ export default function MastoidLabApp() {
     setRawFile(file);
     setUploadStatus("uploading");
 
-    const xhr = new XMLHttpRequest();
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("mode", "research");
+    const urls = getApiUrls();
+    let urlIndex = 0;
 
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const percent = Math.round((event.loaded / event.total) * 100);
-        setUploadProgress(percent);
-      }
-    };
+    const tryUploadWithUrl = (targetBaseUrl: string) => {
+      console.log(`[DRiP] Mencoba mengunggah ke: ${targetBaseUrl}/upload`);
+      const xhr = new XMLHttpRequest();
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("mode", "research");
 
-    xhr.onload = () => {
-      try {
-        const response = JSON.parse(xhr.responseText);
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          setUploadProgress(percent);
+        }
+      };
 
-        if (xhr.status >= 200 && xhr.status < 300 && response.status === "success") {
-          setUploadProgress(100);
-          setUploadStatus("success");
+      xhr.onload = () => {
+        try {
+          const response = JSON.parse(xhr.responseText);
 
-          const meta: DicomMetadata = response.metadata || {};
-          const ww = meta.window_width || 2000;
-          const wl = meta.window_center || 400;
+          if (xhr.status >= 200 && xhr.status < 300 && response.status === "success") {
+            setUploadProgress(100);
+            setUploadStatus("success");
 
-          setFileData({
-            name: file.name,
-            size: (file.size / (1024 * 1024)).toFixed(2) + " MB",
-            dimensions: `${meta.rows || 512} x ${meta.columns || 512} px`,
-            windowWidth: ww,
-            windowLevel: wl,
-            modality: meta.modality || "CT",
-          });
+            const meta: DicomMetadata = response.metadata || {};
+            const ww = meta.window_width || 2000;
+            const wl = meta.window_center || 400;
 
-          setCustomWW(ww);
-          setCustomWL(wl);
-          setResultsData(response.results);
-          setActiveResultKey("contrast");
+            setFileData({
+              name: file.name,
+              size: (file.size / (1024 * 1024)).toFixed(2) + " MB",
+              dimensions: `${meta.rows || 512} x ${meta.columns || 512} px`,
+              windowWidth: ww,
+              windowLevel: wl,
+              modality: meta.modality || "CT",
+            });
 
-          setTimeout(() => setCurrentStep(2), 400);
+            setCustomWW(ww);
+            setCustomWL(wl);
+            setResultsData(response.results);
+            setActiveResultKey("contrast");
+
+            setTimeout(() => setCurrentStep(2), 400);
+          } else {
+            setUploadStatus("error");
+            setUploadError(
+              response.message ||
+              "Gagal memproses file DICOM. Pastikan file valid dengan modalitas CT."
+            );
+          }
+        } catch (err) {
+          console.error("[DRiP] Gagal parse JSON respons backend:", err);
+          setUploadStatus("error");
+          setUploadError("Gagal membaca respons dari server backend.");
+        }
+      };
+
+      xhr.onerror = (e) => {
+        console.warn(`[DRiP] Gagal terhubung ke ${targetBaseUrl}:`, e);
+        urlIndex += 1;
+        if (urlIndex < urls.length) {
+          console.log(`[DRiP] Mencoba URL alternatif: ${urls[urlIndex]}`);
+          tryUploadWithUrl(urls[urlIndex]);
         } else {
           setUploadStatus("error");
           setUploadError(
-            response.message ||
-            "Gagal memproses file DICOM. Pastikan file valid dengan modalitas CT."
+            `Tidak dapat terhubung ke server backend di ${urls.join(" atau ")}. Pastikan server backend Flask aktif dan tidak terhalang (misal: jalankan 'python app.py').`
           );
         }
-      } catch (err) {
-        setUploadStatus("error");
-        setUploadError("Gagal membaca respons dari server pemrosesan.");
-      }
+      };
+
+      xhr.open("POST", `${targetBaseUrl}/upload`);
+      xhr.send(formData);
     };
 
-    xhr.onerror = () => {
-      setUploadStatus("error");
-      setUploadError(
-        `Tidak dapat terhubung ke server backend di ${API_BASE_URL}. Pastikan backend sudah aktif.`
-      );
-    };
-
-    xhr.open("POST", `${API_BASE_URL}/upload`);
-    xhr.send(formData);
+    tryUploadWithUrl(urls[0]);
   };
 
-  // 2. FUNGSI PEMROSESAN
-  const handleProcessImage = (simulateError = false) => {
+  // 2. FUNGSI PEMROSESAN CITRA (STEP 2 -> STEP 3)
+  const handleProcessImage = () => {
+    if (!rawFile) {
+      setProcessError("Berkas DICOM belum diunggah.");
+      return;
+    }
+
     setProcessStatus("processing");
     setProcessProgress(0);
     setProcessError("");
 
-    if (simulateError) {
-      setTimeout(() => {
-        setProcessStatus("error");
-        setProcessProgress(0);
-        setProcessError(
-          "Gagal memproses citra: Terjadi simulasi kesalahan internal pada server."
-        );
-      }, 500);
-      return;
-    }
+    let progress = 10;
+    const progressInterval = setInterval(() => {
+      progress = Math.min(progress + 20, 90);
+      setProcessProgress(progress);
+    }, 120);
 
-    if (processingMode === "exploration" && rawFile) {
-      let progress = 10;
-      const progressInterval = setInterval(() => {
-        progress = Math.min(progress + 20, 90);
-        setProcessProgress(progress);
-      }, 150);
+    const formData = new FormData();
+    formData.append("file", rawFile);
 
-      const formData = new FormData();
-      formData.append("file", rawFile);
-      formData.append("mode", "exploration");
-      formData.append("window_width", customWW.toString());
-      formData.append("window_level", customWL.toString());
+    const urls = getApiUrls();
+    const targetUrl = `${urls[0]}/upload`;
 
-      const operations: string[] = ["windowing", "contrast", "hpf_1", "hpf_2", "hpf_3", "fusion"];
-      formData.append("operations", JSON.stringify(operations));
+    if (processingMode === "research") {
+      // MODE 1: MODUL PENELITIAN BAKU (WW 2000, WL 400, Kontras, HPF 1-2-3, Fusi Kernel 1)
+      formData.append("mode", "research");
 
-      let fusionKernels = ["hpf_1"];
-      if (fusionTarget === "hpf2") fusionKernels = ["hpf_2"];
-      if (fusionTarget === "hpf3") fusionKernels = ["hpf_3"];
-      formData.append("fusion_kernels", JSON.stringify(fusionKernels));
-
-      fetch(`${API_BASE_URL}/upload`, {
+      fetch(targetUrl, {
         method: "POST",
         body: formData,
       })
@@ -290,21 +400,18 @@ export default function MastoidLabApp() {
             setProcessStatus("success");
             setResultsData(data.results);
 
-            if (selectedMethod === "kontras") setActiveResultKey("contrast");
-            else if (selectedMethod === "hp1") setActiveResultKey("hpf_1");
-            else if (selectedMethod === "hp2") setActiveResultKey("hpf_2");
-            else if (selectedMethod === "hp3") setActiveResultKey("hpf_3");
-            else if (selectedMethod === "fusi") {
-              const fusionKey = Object.keys(data.results).find((k) =>
-                k.startsWith("fusion")
-              ) || "fusion";
-              setActiveResultKey(fusionKey);
-            }
+            // Fokus ke metode yang dipilih
+            if (selectedResearchMethod === "kontras") setActiveResultKey("contrast");
+            else if (selectedResearchMethod === "hp1") setActiveResultKey("hpf_1");
+            else if (selectedResearchMethod === "hp2") setActiveResultKey("hpf_2");
+            else if (selectedResearchMethod === "hp3") setActiveResultKey("hpf_3");
+            else if (selectedResearchMethod === "fusi") setActiveResultKey("fusion");
+            else setActiveResultKey("contrast");
 
             setTimeout(() => setCurrentStep(3), 400);
           } else {
             setProcessStatus("error");
-            setProcessError(data.message || "Gagal menjalankan pemrosesan citra.");
+            setProcessError(data.message || "Gagal memproses citra mode penelitian.");
           }
         })
         .catch((err) => {
@@ -313,33 +420,90 @@ export default function MastoidLabApp() {
           setProcessError(`Gagal terhubung ke backend: ${err.message || "Network Error"}`);
         });
     } else {
-      let targetKey = "contrast";
-      if (selectedMethod === "kontras") targetKey = "contrast";
-      else if (selectedMethod === "hp1") targetKey = "hpf_1";
-      else if (selectedMethod === "hp2") targetKey = "hpf_2";
-      else if (selectedMethod === "hp3") targetKey = "hpf_3";
-      else if (selectedMethod === "fusi") targetKey = "fusion";
+      // MODE 2: EKSPLORASI PENGGUNA BEBAS MEMILIH
+      formData.append("mode", "exploration");
+      formData.append("window_width", customWW.toString());
+      formData.append("window_level", customWL.toString());
 
-      setActiveResultKey(targetKey);
+      // Parameter contrast kustom
+      formData.append("contrast_min", contrastMin.toString());
+      formData.append("contrast_max", contrastMax.toString());
 
-      let progress = 0;
-      const interval = setInterval(() => {
-        progress += 30;
-        if (progress >= 100) {
-          clearInterval(interval);
-          setProcessProgress(100);
-          setProcessStatus("success");
-          setTimeout(() => setCurrentStep(3), 400);
-        } else {
-          setProcessProgress(progress);
-        }
-      }, 100);
+      // Kumpulkan operasi yang dipilih pengguna
+      const operations: string[] = ["windowing"];
+      if (explorationOps.contrast) operations.push("contrast");
+      if (explorationOps.hpf_1) operations.push("hpf_1");
+      if (explorationOps.hpf_2) operations.push("hpf_2");
+      if (explorationOps.hpf_3) operations.push("hpf_3");
+      if (explorationOps.fusion) operations.push("fusion");
+      // Tambahkan custom_hpf jika kernel kustom diaktifkan
+      if (useCustomKernel) operations.push("custom_hpf");
+
+      if (operations.length === 1 && !explorationOps.contrast && !explorationOps.hpf_1 && !explorationOps.hpf_2 && !explorationOps.hpf_3 && !explorationOps.fusion && !useCustomKernel) {
+        clearInterval(progressInterval);
+        setProcessStatus("error");
+        setProcessError("Pilih minimal satu proses enhancement (Kontras, HPF, Kernel Kustom, atau Fusi).");
+        return;
+      }
+
+      formData.append("operations", JSON.stringify(operations));
+
+      // Kirim kernel kustom jika diaktifkan
+      if (useCustomKernel) {
+        formData.append("custom_kernel", JSON.stringify(customMatrix));
+      }
+
+      // Kernel untuk Fusi
+      let fusionKernels = ["hpf_1"];
+      if (fusionTarget === "hpf2") fusionKernels = ["hpf_2"];
+      if (fusionTarget === "hpf3") fusionKernels = ["hpf_3"];
+      if (fusionTarget === "custom") fusionKernels = ["custom_hpf"];
+      formData.append("fusion_kernels", JSON.stringify(fusionKernels));
+
+      fetch(targetUrl, {
+        method: "POST",
+        body: formData,
+      })
+        .then(async (res) => {
+          clearInterval(progressInterval);
+          const data = await res.json();
+          if (res.ok && data.status === "success") {
+            setProcessProgress(100);
+            setProcessStatus("success");
+            setResultsData(data.results);
+
+            // Tentukan key hasil awal
+            const availableKeys = Object.keys(data.results);
+            const fusionKey = availableKeys.find((k) => k.startsWith("fusion"));
+            if (explorationOps.fusion && fusionKey) {
+              setActiveResultKey(fusionKey);
+            } else if (useCustomKernel && availableKeys.includes("custom_hpf")) {
+              setActiveResultKey("custom_hpf");
+            } else if (availableKeys.includes("contrast") && explorationOps.contrast) {
+              setActiveResultKey("contrast");
+            } else if (availableKeys.length > 0) {
+              setActiveResultKey(availableKeys[0]);
+            }
+
+            setTimeout(() => setCurrentStep(3), 400);
+          } else {
+            setProcessStatus("error");
+            setProcessError(data.message || "Gagal memproses citra mode eksplorasi.");
+          }
+        })
+        .catch((err) => {
+          clearInterval(progressInterval);
+          setProcessStatus("error");
+          setProcessError(`Gagal terhubung ke backend: ${err.message || "Network Error"}`);
+        });
     }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) processUploadFile(file);
+    // Reset nilai input agar dapat memilih file yang sama berulang kali
+    e.target.value = "";
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -374,6 +538,9 @@ export default function MastoidLabApp() {
     setCurrentStep(1);
     setZoomLevel(1);
     setZoomLevelP3(1);
+    setUseCustomKernel(false);
+    setContrastMin(0.2);
+    setContrastMax(0.9);
   };
 
   const handleDownload = (format: "png" | "dicom") => {
@@ -381,7 +548,8 @@ export default function MastoidLabApp() {
     const currentItem =
       resultsData[activeResultKey] ||
       resultsData["fusion"] ||
-      resultsData["contrast"];
+      resultsData["contrast"] ||
+      Object.values(resultsData)[0];
     if (!currentItem) return;
 
     const downloadUrl =
@@ -394,12 +562,62 @@ export default function MastoidLabApp() {
     }
   };
 
+  // Toggle operasi di Mode 2 (Eksplorasi)
+  const toggleExplorationOp = (key: "contrast" | "hpf_1" | "hpf_2" | "hpf_3" | "fusion") => {
+    setExplorationOps((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  // Preset matriks kustom
+  const applyMatrixPreset = (preset: string) => {
+    setMatrixPreset(preset);
+    if (preset === "kernel_1") {
+      setCustomMatrix([
+        [-1, -1, -1],
+        [-1, 8, -1],
+        [-1, -1, -1]
+      ]);
+    } else if (preset === "kernel_2") {
+      setCustomMatrix([
+        [0, -1, 0],
+        [-1, 5, -1],
+        [0, -1, 0]
+      ]);
+    } else if (preset === "kernel_3") {
+      setCustomMatrix([
+        [1, -2, 1],
+        [-2, 5, -2],
+        [1, -2, 1]
+      ]);
+    } else if (preset === "high_boost") {
+      setCustomMatrix([
+        [-1, -1, -1],
+        [-1, 9, -1],
+        [-1, -1, -1]
+      ]);
+    }
+  };
+
+  const updateMatrixCell = (row: number, col: number, val: string) => {
+    const num = parseFloat(val) || 0;
+    const updated = customMatrix.map((r, rIdx) =>
+      r.map((c, cIdx) => (rIdx === row && cIdx === col ? num : c))
+    );
+    setCustomMatrix(updated);
+    setMatrixPreset("custom");
+  };
+
   return (
     <div className="min-h-screen flex flex-col justify-between bg-[#090D16] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-teal-950/25 via-[#090D16] to-[#06080F] px-6 md:px-12 py-6 text-slate-100">
       <input
         type="file"
         ref={fileInputRef}
         onChange={handleFileSelect}
+        onClick={(e) => {
+          (e.target as HTMLInputElement).value = "";
+        }}
         accept=".dcm,.dicom"
         className="hidden"
       />
@@ -464,7 +682,9 @@ export default function MastoidLabApp() {
             <button
               disabled={!fileData}
               onClick={() => fileData && setCurrentStep(2)}
-              className={`transition px-2.5 py-1 rounded-lg ${fileData ? "cursor-pointer hover:text-slate-200" : "cursor-not-allowed opacity-40"
+              className={`transition px-2.5 py-1 rounded-lg ${fileData
+                ? "cursor-pointer hover:text-slate-200"
+                : "cursor-not-allowed opacity-40"
                 } ${currentStep === 2
                   ? "bg-slate-800 text-teal-300 font-bold border border-teal-500/40 shadow-sm"
                   : ""
@@ -491,7 +711,7 @@ export default function MastoidLabApp() {
       </header>
 
       {/* ========================================================================= */}
-      {/* PAGE 1: UPLOAD CITRA */}
+      {/* PAGE 1: UPLOAD CITRA (PERSIS SESUAI DESAIN SEBELUMNYA) */}
       {/* ========================================================================= */}
       <main className="flex-grow">
         {currentStep === 1 && (
@@ -513,12 +733,13 @@ export default function MastoidLabApp() {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-3xl p-12 text-center space-y-4 transition-all duration-300 shadow-xl ${isDragging
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-3xl p-12 text-center space-y-4 transition-all duration-300 shadow-xl cursor-pointer ${isDragging
                 ? "bg-teal-950/40 border-teal-400 scale-[1.01]"
                 : "bg-[#0E1526]/80 border-slate-700/80 hover:border-teal-500/60 hover:bg-[#121B30]/80"
                 }`}
             >
-              <div className="w-16 h-16 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl flex items-center justify-center mx-auto text-white shadow-lg shadow-teal-500/25">
+              <div className="w-16 h-16 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl flex items-center justify-center mx-auto text-white shadow-lg shadow-teal-500/25 pointer-events-none">
                 <Upload className="w-7 h-7" />
               </div>
 
@@ -529,13 +750,17 @@ export default function MastoidLabApp() {
                       Letakkan Berkas DICOM Mastoid di Sini
                     </h3>
                     <p className="text-xs text-slate-400">
-                      Tarik file langsung ke area ini atau pilih file dari komputer Anda.
+                      Tarik file langsung ke area ini atau klik untuk memilih file dari komputer Anda.
                     </p>
                   </div>
                   <div>
                     <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="bg-gradient-to-r from-teal-600 to-emerald-500 hover:from-teal-500 hover:to-emerald-400 text-white text-sm font-semibold px-8 py-3 rounded-xl transition-all shadow-lg shadow-teal-500/25 active:scale-95"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                      className="bg-gradient-to-r from-teal-600 to-emerald-500 hover:from-teal-500 hover:to-emerald-400 text-white text-sm font-semibold px-8 py-3 rounded-xl transition-all shadow-lg shadow-teal-500/25 active:scale-95 cursor-pointer"
                     >
                       Pilih Berkas DICOM
                     </button>
@@ -544,7 +769,7 @@ export default function MastoidLabApp() {
               )}
 
               {uploadStatus === "uploading" && (
-                <div className="max-w-xs mx-auto space-y-3 py-3">
+                <div className="max-w-xs mx-auto space-y-3 py-3" onClick={(e) => e.stopPropagation()}>
                   <div className="flex justify-between text-xs font-semibold text-teal-300">
                     <span className="flex items-center gap-1.5">
                       <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
@@ -565,15 +790,16 @@ export default function MastoidLabApp() {
               )}
 
               {uploadStatus === "error" && (
-                <div className="max-w-md mx-auto space-y-3 py-3 bg-rose-950/40 p-5 rounded-2xl border border-rose-500/40 shadow-sm">
+                <div className="max-w-md mx-auto space-y-3 py-3 bg-rose-950/40 p-5 rounded-2xl border border-rose-500/40 shadow-sm" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-center gap-2 text-rose-300 font-semibold text-sm">
                     <AlertCircle className="w-5 h-5 text-rose-400" />
                     <span>Gagal mengunggah file.</span>
                   </div>
-                  <p className="text-xs text-rose-300">{uploadError}</p>
+                  <p className="text-xs text-rose-300 leading-relaxed">{uploadError}</p>
                   <button
+                    type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition"
+                    className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition cursor-pointer"
                   >
                     Pilih File Lain
                   </button>
@@ -585,7 +811,7 @@ export default function MastoidLabApp() {
               </p>
             </div>
 
-            {/* FITUR KARTU DARK MODE COLORFUL */}
+            {/* FITUR KARTU DARK MODE COLORFUL (TAHAP 01, TAHAP 02, TAHAP 03) */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2">
               <div className="bg-[#0E1526]/80 p-5 rounded-2xl border-t-4 border-t-sky-400 border border-slate-800 shadow-lg space-y-2 hover:border-slate-700 transition">
                 <span className="text-xs font-bold text-sky-300 bg-sky-950/80 border border-sky-800/60 px-2 py-0.5 rounded-md">
@@ -621,7 +847,7 @@ export default function MastoidLabApp() {
         )}
 
         {/* ========================================================================= */}
-        {/* PAGE 2: PILIH METODE */}
+        {/* PAGE 2: PILIH METODE & PENGATURAN MODE */}
         {/* ========================================================================= */}
         {currentStep === 2 && (
           <div className="space-y-6 animate-in fade-in duration-300">
@@ -631,7 +857,9 @@ export default function MastoidLabApp() {
                   Atur Pemrosesan Citra
                 </h2>
                 <p className="text-slate-400 text-sm mt-1">
-                  Tinjau file DICOM tervalidasi dan pilih algoritma penajaman yang ingin diterapkan.
+                  {processingMode === "research"
+                    ? "Mode 1: Menjalankan parameter baku modul penelitian (WW 2000, WL 400, Kontras, HPF 1-3, Fusi Kernel 1)."
+                    : "Mode 2: Eksplorasi bebas — pilih proses, kernel HPF, target fusi, dan sesuaikan parameter WW & WL."}
                 </p>
               </div>
 
@@ -640,7 +868,7 @@ export default function MastoidLabApp() {
                 <button
                   type="button"
                   onClick={() => setProcessingMode("research")}
-                  className={`px-3 py-1.5 rounded-lg transition ${processingMode === "research"
+                  className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${processingMode === "research"
                     ? "bg-teal-900/60 text-teal-200 border border-teal-500/40 shadow-sm"
                     : "text-slate-400 hover:text-slate-200"
                     }`}
@@ -650,7 +878,7 @@ export default function MastoidLabApp() {
                 <button
                   type="button"
                   onClick={() => setProcessingMode("exploration")}
-                  className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${processingMode === "exploration"
+                  className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer ${processingMode === "exploration"
                     ? "bg-teal-900/60 text-teal-200 border border-teal-500/40 shadow-sm"
                     : "text-slate-400 hover:text-slate-200"
                     }`}
@@ -672,8 +900,8 @@ export default function MastoidLabApp() {
                   </div>
                 </div>
                 <button
-                  onClick={() => handleProcessImage(false)}
-                  className="flex items-center gap-1.5 text-xs bg-rose-600 text-white font-semibold px-3 py-1.5 hover:bg-rose-700 transition rounded-lg"
+                  onClick={() => handleProcessImage()}
+                  className="flex items-center gap-1.5 text-xs bg-rose-600 text-white font-semibold px-3 py-1.5 hover:bg-rose-700 transition rounded-lg cursor-pointer"
                 >
                   <RefreshCcw className="w-3.5 h-3.5" />
                   Coba Lagi
@@ -694,7 +922,11 @@ export default function MastoidLabApp() {
                         {fileData?.name}
                       </h3>
                       <p className="text-xs text-slate-400">
-                        Modalitas: <span className="font-semibold text-teal-300">{fileData?.modality}</span> • {fileData?.dimensions} ({fileData?.size})
+                        Modalitas:{" "}
+                        <span className="font-semibold text-teal-300">
+                          {fileData?.modality}
+                        </span>{" "}
+                        • {fileData?.dimensions} ({fileData?.size})
                       </p>
                     </div>
                   </div>
@@ -711,7 +943,7 @@ export default function MastoidLabApp() {
                       <div className="absolute top-3 right-3 z-10 flex items-center gap-1 bg-slate-900/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-700 text-white text-xs shadow-lg">
                         <button
                           onClick={handleZoomOut}
-                          className="px-2 py-1 hover:bg-slate-800 rounded transition font-bold"
+                          className="px-2 py-1 hover:bg-slate-800 rounded transition font-bold cursor-pointer"
                           title="Zoom Out"
                         >
                           -
@@ -721,7 +953,7 @@ export default function MastoidLabApp() {
                         </span>
                         <button
                           onClick={handleZoomIn}
-                          className="px-2 py-1 hover:bg-slate-800 rounded transition font-bold"
+                          className="px-2 py-1 hover:bg-slate-800 rounded transition font-bold cursor-pointer"
                           title="Zoom In"
                         >
                           +
@@ -729,7 +961,7 @@ export default function MastoidLabApp() {
                         {zoomLevel !== 1 && (
                           <button
                             onClick={handleResetZoom}
-                            className="px-2 py-1 hover:bg-slate-800 text-amber-400 hover:text-white rounded transition text-[10px]"
+                            className="px-2 py-1 hover:bg-slate-800 text-amber-400 hover:text-white rounded transition text-[10px] cursor-pointer"
                           >
                             Reset
                           </button>
@@ -759,7 +991,7 @@ export default function MastoidLabApp() {
                   </p>
                   <button
                     onClick={handleReset}
-                    className="border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-slate-300 text-xs font-semibold px-4 py-2 rounded-xl transition"
+                    className="border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-slate-300 text-xs font-semibold px-4 py-2 rounded-xl transition cursor-pointer"
                   >
                     Ganti File
                   </button>
@@ -768,28 +1000,47 @@ export default function MastoidLabApp() {
 
               {/* KOLOM KANAN: PILIHAN METODE */}
               <div className="lg:col-span-6 space-y-4">
-                <div>
-                  <h3 className="font-bold text-slate-100 text-base">
-                    Pilih Metode Peningkatan
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Setiap metode dirancang untuk menonjolkan fitur anatomi tulang mastoid yang spesifik.
-                  </p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-slate-100 text-base">
+                      {processingMode === "research"
+                        ? "Pilih Metode Peningkatan (Fokus Pratinjau)"
+                        : "Pilih Operasi Enhancement Bebas"}
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      {processingMode === "research"
+                        ? "Pada Mode 1, seluruh metode otomatis diproses. Klik kartu untuk memilih fokus tampilan awal."
+                        : "Klik kartu untuk mengaktifkan atau menonaktifkan proses / kernel yang ingin diproses."}
+                    </p>
+                  </div>
                 </div>
 
+                {/* 5 KARTU METODE ASLI DENGAN INTERAKSI MODE 1 & MODE 2 */}
                 <div className="space-y-2.5">
                   {methods.map((method) => {
-                    const isSelected = selectedMethod === method.id;
+                    const opKey = method.backendKey as "contrast" | "hpf_1" | "hpf_2" | "hpf_3" | "fusion";
+                    const isResearchSelected = selectedResearchMethod === method.id;
+                    const isExplorationActive = explorationOps[opKey];
+
+                    const isActive =
+                      processingMode === "research" ? isResearchSelected : isExplorationActive;
+
                     return (
                       <div
                         key={method.id}
-                        onClick={() => setSelectedMethod(method.id)}
-                        className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex items-start justify-between shadow-md ${isSelected
+                        onClick={() => {
+                          if (processingMode === "research") {
+                            setSelectedResearchMethod(method.id);
+                          } else {
+                            toggleExplorationOp(opKey);
+                          }
+                        }}
+                        className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex items-start justify-between shadow-md ${isActive
                           ? method.activeRing
-                          : "bg-[#0E1526]/80 border-slate-800/90 hover:border-slate-700 hover:bg-[#131C33]/60"
+                          : "bg-[#0E1526]/80 border-slate-800/90 hover:border-slate-700 hover:bg-[#131C33]/60 opacity-60"
                           }`}
                       >
-                        <div className="space-y-1">
+                        <div className="space-y-1 flex-grow">
                           <div className="flex items-center gap-2">
                             <span className={`w-2 h-2 rounded-full ${method.dotColor}`} />
                             <h4 className="text-sm font-bold text-slate-100">
@@ -798,13 +1049,74 @@ export default function MastoidLabApp() {
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${method.colorBadge}`}>
                               {method.id.toUpperCase()}
                             </span>
+                            {processingMode === "exploration" && (
+                              <span
+                                className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                                  isExplorationActive
+                                    ? "bg-teal-950 text-teal-300 border border-teal-800/80"
+                                    : "bg-slate-900 text-slate-500"
+                                }`}
+                              >
+                                {isExplorationActive ? "AKTIF" : "NONAKTIF"}
+                              </span>
+                            )}
                           </div>
                           <p className="text-xs text-slate-400 pl-4">
                             {method.desc}
                           </p>
+
+                          {/* Tampilan Nilai Matriks Kernel 3x3 */}
+                          {method.matrix && (
+                            <div className="pl-4 pt-1.5">
+                              <button
+                                type="button"
+                                onClick={(e) => toggleShowMatrix(method.id, e)}
+                                className="text-[10px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1 cursor-pointer bg-slate-900/80 hover:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-800 transition"
+                              >
+                                <Grid3x3 className="w-3 h-3" />
+                                {showMatrixCard[method.id] ? "Sembunyikan Nilai Matriks" : "Lihat Nilai Matriks 3×3"}
+                              </button>
+
+                              {showMatrixCard[method.id] && (
+                                <div
+                                  className="mt-2 p-2.5 bg-[#050811] rounded-xl border border-slate-800/90 space-y-1.5 animate-in fade-in duration-150"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <div className="flex items-center justify-between text-[10px]">
+                                    <span className="text-slate-400 font-medium">
+                                      {method.matrixNote}
+                                    </span>
+                                    <span className="font-mono text-cyan-300">
+                                      Total Bobot (&Sigma;): {method.matrix.flat().reduce((a, b) => a + b, 0)}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-start pt-0.5">
+                                    <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1.5 rounded-lg border border-slate-800/80 font-mono text-center">
+                                      {method.matrix.map((row, rIdx) =>
+                                        row.map((val, cIdx) => (
+                                          <div
+                                            key={`${rIdx}-${cIdx}`}
+                                            className={`w-7 h-6 flex items-center justify-center rounded text-xs ${
+                                              rIdx === 1 && cIdx === 1
+                                                ? "bg-cyan-950 text-cyan-300 font-bold border border-cyan-700/60"
+                                                : "bg-slate-900 text-slate-300"
+                                            }`}
+                                          >
+                                            {val}
+                                          </div>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
+
+                        {/* Indikator Checkbox / Radio */}
                         <div className="mt-0.5">
-                          {isSelected ? (
+                          {isActive ? (
                             <div className="w-5 h-5 rounded-full bg-teal-500 text-slate-950 flex items-center justify-center text-xs shadow-sm font-bold">
                               <Check className="w-3.5 h-3.5 stroke-[3]" />
                             </div>
@@ -816,86 +1128,323 @@ export default function MastoidLabApp() {
                     );
                   })}
 
-                  {/* KONTROL FUSI CITRA */}
-                  {selectedMethod === "fusi" && (
-                    <div className="bg-gradient-to-br from-teal-950/40 to-cyan-950/30 border border-teal-500/40 rounded-2xl p-4 space-y-3 animate-in fade-in duration-200 shadow-md">
-                      <div>
-                        <h4 className="text-xs font-bold text-teal-300 flex items-center gap-1.5">
-                          <Layers className="w-3.5 h-3.5 text-teal-400" />
-                          Pilih Pasangan Kernel Fusi
-                        </h4>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          Pilih kernel penajaman yang dileburkan kembali dengan citra CT asli.
-                        </p>
-                      </div>
+                  {/* KONTROL FUSI CITRA (MUNCUL JIKA FUSI DIPILIH ATAU DIAKTIFKAN) */}
+                  {((processingMode === "research" && selectedResearchMethod === "fusi") ||
+                    (processingMode === "exploration" && explorationOps.fusion)) && (
+                      <div className="bg-gradient-to-br from-teal-950/40 to-cyan-950/30 border border-teal-500/40 rounded-2xl p-4 space-y-3 animate-in fade-in duration-200 shadow-md">
+                        <div>
+                          <h4 className="text-xs font-bold text-teal-300 flex items-center gap-1.5">
+                            <Layers className="w-3.5 h-3.5 text-teal-400" />
+                            Pilih Pasangan Kernel Fusi
+                          </h4>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            {processingMode === "research"
+                              ? "Pada Mode Penelitian baku, Kernel 1 adalah standar modul PDF."
+                              : "Pilih kernel penajaman yang dileburkan kembali dengan citra CT asli."}
+                          </p>
+                        </div>
 
-                      <div className="grid grid-cols-3 gap-2 text-xs">
-                        {[
-                          { id: "hpf1", label: "Kernel 1 (Baku)" },
-                          { id: "hpf2", label: "Kernel 2" },
-                          { id: "hpf3", label: "Kernel 3" },
-                        ].map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => setFusionTarget(item.id)}
-                            className={`p-2.5 rounded-xl border font-bold transition ${fusionTarget === item.id
-                              ? "bg-teal-600 text-white border-teal-500 shadow-sm"
-                              : "bg-slate-900 text-slate-300 border-slate-700 hover:border-teal-500/50"
-                              }`}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          {[
+                            { id: "hpf1", label: "Kernel 1 (Baku)" },
+                            { id: "hpf2", label: "Kernel 2" },
+                            { id: "hpf3", label: "Kernel 3" },
+                          ].map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setFusionTarget(item.id)}
+                              className={`p-2.5 rounded-xl border font-bold transition cursor-pointer ${fusionTarget === item.id
+                                ? "bg-teal-600 text-white border-teal-500 shadow-sm"
+                                : "bg-slate-900 text-slate-300 border-slate-700 hover:border-teal-500/50"
+                                }`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                          {processingMode === "exploration" && useCustomKernel && (
+                            <button
+                              type="button"
+                              onClick={() => setFusionTarget("custom")}
+                              className={`p-2.5 rounded-xl border font-bold transition cursor-pointer ${fusionTarget === "custom"
+                                ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
+                                : "bg-slate-900 text-slate-300 border-slate-700 hover:border-indigo-500/50"
+                                }`}
+                            >
+                              Kernel Kustom
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {/* KONTROL WINDOWING EKSPLORASI */}
+                  {/* KONTROL WINDOWING & FITUR TAMBAHAN DI MODE EKSPLORASI */}
                   {processingMode === "exploration" ? (
-                    <div className="bg-[#0E1526]/80 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-md">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                          <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400" />
-                          Kustomisasi Windowing
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-mono">
-                          Batas Tulang Mastoid
-                        </span>
+                    <div className="space-y-3">
+                      {/* KUSTOMISASI WINDOWING */}
+                      <div className="bg-[#0E1526]/80 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-md">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                            <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400" />
+                            Kustomisasi Windowing (WW & WL)
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            Batas Tulang Mastoid
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <label className="text-slate-400 font-medium block mb-1">
+                              Window Width (WW)
+                            </label>
+                            <input
+                              type="number"
+                              value={customWW}
+                              onChange={(e) => setCustomWW(Number(e.target.value))}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-teal-400 transition"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-slate-400 font-medium block mb-1">
+                              Window Level (WL)
+                            </label>
+                            <input
+                              type="number"
+                              value={customWL}
+                              onChange={(e) => setCustomWL(Number(e.target.value))}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-teal-400 transition"
+                            />
+                          </div>
+                        </div>
+
+                        {/* PRESET CEPAT */}
+                        <div className="flex flex-wrap gap-1.5 pt-1 text-[10px]">
+                          <span className="text-slate-500 font-medium self-center mr-1">
+                            Preset:
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomWW(2000);
+                              setCustomWL(400);
+                            }}
+                            className="bg-slate-800 hover:bg-slate-700 text-teal-300 px-2 py-0.5 rounded border border-slate-700 cursor-pointer transition"
+                          >
+                            Mastoid (2000 / 400)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomWW(3000);
+                              setCustomWL(500);
+                            }}
+                            className="bg-slate-800 hover:bg-slate-700 text-cyan-300 px-2 py-0.5 rounded border border-slate-700 cursor-pointer transition"
+                          >
+                            Temporal Tinggi (3000 / 500)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomWW(350);
+                              setCustomWL(40);
+                            }}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded border border-slate-700 cursor-pointer transition"
+                          >
+                            Jaringan Lunak (350 / 40)
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3 text-xs">
-                        <div>
-                          <label className="text-slate-400 font-medium block mb-1">
-                            Window Width (WW)
-                          </label>
-                          <input
-                            type="number"
-                            value={customWW}
-                            onChange={(e) => setCustomWW(Number(e.target.value))}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-teal-400 transition"
-                          />
+                      {/* FITUR TAMBAHAN: MATRIKS FILTER KUSTOM (3×3) */}
+                      <div className="bg-[#0E1526]/80 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-md">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                            <Grid3x3 className="w-3.5 h-3.5 text-indigo-400" />
+                            Kernel Filter Kustom (3×3)
+                          </span>
+                          {/* Toggle aktifkan kernel kustom */}
+                          <button
+                            type="button"
+                            onClick={() => setUseCustomKernel(!useCustomKernel)}
+                            className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer transition flex items-center gap-1.5 ${
+                              useCustomKernel
+                                ? "bg-indigo-600 text-white border-indigo-500 shadow-sm shadow-indigo-500/30"
+                                : "bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-600"
+                            }`}
+                          >
+                            {useCustomKernel ? (
+                              <><CheckSquare className="w-3 h-3" /> Aktif — Kirim ke Backend</>
+                            ) : (
+                              <><Square className="w-3 h-3" /> Nonaktif</>
+                            )}
+                          </button>
                         </div>
-                        <div>
-                          <label className="text-slate-400 font-medium block mb-1">
-                            Window Level (WL)
-                          </label>
-                          <input
-                            type="number"
-                            value={customWL}
-                            onChange={(e) => setCustomWL(Number(e.target.value))}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-teal-400 transition"
-                          />
+
+                        {useCustomKernel && (
+                          <p className="text-[10px] text-indigo-300 bg-indigo-950/50 border border-indigo-700/40 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                            <HelpCircle className="w-3 h-3 shrink-0" />
+                            Kernel kustom akan diproses sebagai HPF tambahan. Tersedia di hasil sebagai "Filter Kustom".
+                          </p>
+                        )}
+
+                        {/* Tombol buka / tutup editor matriks */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-400">
+                            {useCustomKernel ? "Edit nilai matriks di bawah:" : "Aktifkan untuk mengirim kernel ini ke server."}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowCustomMatrix(!showCustomMatrix)}
+                            className="text-[10px] text-indigo-300 hover:text-indigo-200 font-bold bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-700/50 cursor-pointer transition"
+                          >
+                            {showCustomMatrix ? "Sembunyikan" : "Buka Editor"}
+                          </button>
                         </div>
+
+                        {showCustomMatrix && (
+                          <div className="space-y-2.5 pt-1 border-t border-slate-800 animate-in fade-in duration-150">
+                            <div className="flex flex-wrap gap-1 text-[10px]">
+                              {[
+                                { id: "kernel_1", label: "Kernel 1 (8-Arah)" },
+                                { id: "kernel_2", label: "Kernel 2 (4-Arah)" },
+                                { id: "kernel_3", label: "Kernel 3 (Diagonal)" },
+                                { id: "high_boost", label: "High-Boost" },
+                              ].map((p) => (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  onClick={() => applyMatrixPreset(p.id)}
+                                  className={`px-2 py-0.5 rounded border cursor-pointer transition ${matrixPreset === p.id
+                                    ? "bg-indigo-600 text-white border-indigo-400 font-bold"
+                                    : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-600"
+                                    }`}
+                                >
+                                  {p.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="flex justify-center p-2 bg-[#030712] rounded-xl border border-slate-800">
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {customMatrix.map((row, rIdx) =>
+                                  row.map((val, cIdx) => (
+                                    <input
+                                      key={`${rIdx}-${cIdx}`}
+                                      type="number"
+                                      value={val}
+                                      onChange={(e) =>
+                                        updateMatrixCell(rIdx, cIdx, e.target.value)
+                                      }
+                                      className={`w-11 h-9 text-center font-mono text-xs rounded-lg border focus:outline-none transition ${rIdx === 1 && cIdx === 1
+                                        ? "bg-indigo-950/80 border-indigo-500 text-indigo-300 font-bold"
+                                        : "bg-slate-900 border-slate-700 text-slate-200"
+                                        }`}
+                                    />
+                                  ))
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex justify-between text-[10px] text-slate-400 font-mono px-1">
+                              <span>Total Bobot: <strong className="text-indigo-300">{customMatrixSum}</strong></span>
+                              <span>Karakteristik: <strong className="text-cyan-300">{customMatrixSum === 0 ? "Zero-Sum HPF" : customMatrixSum === 1 ? "High-Boost" : "Kustom"}</strong></span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* PARAMETER CONTRAST KUSTOM */}
+                      <div className="bg-[#0E1526]/80 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-md">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                            <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                            Parameter Kontras (imadjust)
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            Rentang Normalisasi
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <label className="text-slate-400 font-medium block mb-1">
+                              Batas Bawah (Min)
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={0.49}
+                              step={0.05}
+                              value={contrastMin}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                if (!isNaN(v) && v >= 0 && v < contrastMax) setContrastMin(v);
+                              }}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-amber-200 font-mono text-xs focus:outline-none focus:border-amber-400 transition"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-slate-400 font-medium block mb-1">
+                              Batas Atas (Max)
+                            </label>
+                            <input
+                              type="number"
+                              min={0.51}
+                              max={1.0}
+                              step={0.05}
+                              value={contrastMax}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                if (!isNaN(v) && v > contrastMin && v <= 1.0) setContrastMax(v);
+                              }}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-amber-200 font-mono text-xs focus:outline-none focus:border-amber-400 transition"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Preset cepat kontras */}
+                        <div className="flex flex-wrap gap-1.5 pt-1 text-[10px]">
+                          <span className="text-slate-500 font-medium self-center mr-1">
+                            Preset:
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => { setContrastMin(0.2); setContrastMax(0.9); }}
+                            className="bg-slate-800 hover:bg-slate-700 text-amber-300 px-2 py-0.5 rounded border border-slate-700 cursor-pointer transition"
+                          >
+                            Baku PDF (0.2 / 0.9)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setContrastMin(0.1); setContrastMax(0.95); }}
+                            className="bg-slate-800 hover:bg-slate-700 text-cyan-300 px-2 py-0.5 rounded border border-slate-700 cursor-pointer transition"
+                          >
+                            Lebar (0.1 / 0.95)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setContrastMin(0.3); setContrastMax(0.8); }}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded border border-slate-700 cursor-pointer transition"
+                          >
+                            Sempit (0.3 / 0.8)
+                          </button>
+                        </div>
+
+                        <p className="text-[10px] text-slate-500">
+                          Rentang normalisasi intensitas piksel sebelum HPF. Semakin sempit = kontras lebih tinggi.
+                          Nilai baku sesuai modul: Min 0.2, Max 0.9.
+                        </p>
                       </div>
                     </div>
                   ) : (
+                    /* PARAMETER BAKU MODE PENELITIAN */
                     <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3.5 space-y-1">
                       <p className="text-xs font-semibold text-slate-300">
-                        Parameter Baku: WW {fileData?.windowWidth} • WL {fileData?.windowLevel}
+                        Parameter Baku: WW {fileData?.windowWidth || 2000} • WL {fileData?.windowLevel || 400}
                       </p>
                       <p className="text-[11px] text-slate-500">
-                        Rentang optimal visualisasi struktur pneumatic cell tulang mastoid.
+                        Rentang optimal visualisasi struktur pneumatic cell tulang mastoid sesuai modul penelitian (PDF). Seluruh proses (Kontras, HPF 1-3, Fusi) dijalankan otomatis.
                       </p>
                     </div>
                   )}
@@ -909,7 +1458,7 @@ export default function MastoidLabApp() {
                     <div className="flex justify-between text-xs font-bold text-teal-300">
                       <span className="flex items-center gap-2">
                         <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
-                        Sedang Menerapkan Algoritma Pemrosesan Citra...
+                        Sedang Menerapkan Algoritma Pemrosesan Citra ({processingMode === "research" ? "Mode 1: Penelitian" : "Mode 2: Eksplorasi"})...
                       </span>
                       <span className="font-mono">{processProgress}%</span>
                     </div>
@@ -923,11 +1472,13 @@ export default function MastoidLabApp() {
                 ) : (
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-slate-400">
-                      Pemrosesan komputasi matriks citra dieksekusi melalui modul backend.
+                      {processingMode === "research"
+                        ? "Pemrosesan otomatis seluruh 6 output modul penelitian baku (PDF)."
+                        : `Pemrosesan sesuai konfigurasi operasi pilihan Anda (WW: ${customWW}, WL: ${customWL}).`}
                     </p>
                     <button
-                      onClick={() => handleProcessImage(false)}
-                      className="bg-gradient-to-r from-teal-600 to-emerald-500 hover:from-teal-500 hover:to-emerald-400 text-white text-sm font-semibold px-8 py-3 rounded-xl transition-all shadow-lg shadow-teal-500/25 flex items-center gap-2 active:scale-95"
+                      onClick={() => handleProcessImage()}
+                      className="bg-gradient-to-r from-teal-600 to-emerald-500 hover:from-teal-500 hover:to-emerald-400 text-white text-sm font-semibold px-8 py-3 rounded-xl transition-all shadow-lg shadow-teal-500/25 flex items-center gap-2 active:scale-95 cursor-pointer"
                     >
                       <Sparkles className="w-4 h-4" />
                       Proses Citra Sekarang
@@ -944,13 +1495,28 @@ export default function MastoidLabApp() {
         {/* ========================================================================= */}
         {currentStep === 3 && (
           <div className="space-y-6 animate-in fade-in duration-300">
-            <div>
-              <h2 className="text-3xl font-extrabold bg-gradient-to-r from-teal-300 via-emerald-200 to-cyan-300 bg-clip-text text-transparent tracking-tight">
-                Hasil Pemrosesan Citra CT
-              </h2>
-              <p className="text-slate-400 text-sm mt-1">
-                Bandingkan citra asli dengan citra hasil filter secara langsung menggunakan fitur perbesaran interaktif.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h2 className="text-3xl font-extrabold bg-gradient-to-r from-teal-300 via-emerald-200 to-cyan-300 bg-clip-text text-transparent tracking-tight">
+                  Hasil Pemrosesan Citra CT
+                </h2>
+                <p className="text-slate-400 text-sm mt-1">
+                  Bandingkan citra asli dengan citra hasil filter secara langsung menggunakan fitur perbesaran interaktif.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold px-3 py-1 rounded-full border bg-slate-900 border-slate-700 text-teal-300">
+                  {processingMode === "research" ? "Mode 1: Penelitian" : "Mode 2: Eksplorasi"}
+                </span>
+                <button
+                  onClick={() => setCurrentStep(2)}
+                  className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400" />
+                  Ubah Parameter
+                </button>
+              </div>
             </div>
 
             {/* BANNER HASIL DENGAN CHIPS */}
@@ -980,14 +1546,19 @@ export default function MastoidLabApp() {
                       hpf_2: "HPF 2",
                       hpf_3: "HPF 3",
                       fusion: "Fusi",
+                      custom_hpf: "Filter Kustom",
                     };
-                    const label = labelMap[key] || key;
+                    const label =
+                      labelMap[key] ||
+                      (key.startsWith("fusion_")
+                        ? key.replace("fusion_", "Fusi ")
+                        : key);
                     const isActive = activeResultKey === key;
                     return (
                       <button
                         key={key}
                         onClick={() => setActiveResultKey(key)}
-                        className={`text-xs px-3 py-1.5 rounded-lg transition font-bold ${isActive
+                        className={`text-xs px-3 py-1.5 rounded-lg transition font-bold cursor-pointer ${isActive
                           ? "bg-gradient-to-r from-teal-600 to-emerald-500 text-white shadow-md shadow-teal-500/25"
                           : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
                           }`}
@@ -1009,7 +1580,7 @@ export default function MastoidLabApp() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleZoomOutP3}
-                  className="bg-slate-800 hover:bg-slate-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 border border-slate-700"
+                  className="bg-slate-800 hover:bg-slate-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 border border-slate-700 cursor-pointer"
                   title="Perkecil"
                 >
                   <ZoomOut className="w-3.5 h-3.5" /> -
@@ -1019,7 +1590,7 @@ export default function MastoidLabApp() {
                 </span>
                 <button
                   onClick={handleZoomInP3}
-                  className="bg-slate-800 hover:bg-slate-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 border border-slate-700"
+                  className="bg-slate-800 hover:bg-slate-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 border border-slate-700 cursor-pointer"
                   title="Perbesar"
                 >
                   <ZoomIn className="w-3.5 h-3.5" /> +
@@ -1027,7 +1598,7 @@ export default function MastoidLabApp() {
                 {zoomLevelP3 !== 1 && (
                   <button
                     onClick={handleResetZoomP3}
-                    className="bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-white px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ml-1 border border-slate-700"
+                    className="bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-white px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ml-1 border border-slate-700 cursor-pointer"
                   >
                     Reset Zoom
                   </button>
@@ -1045,7 +1616,8 @@ export default function MastoidLabApp() {
                     Citra Asli (Bone Windowing)
                   </h3>
                   <span className="text-[11px] text-slate-400 font-mono">
-                    WW: {fileData?.windowWidth} / WL: {fileData?.windowLevel}
+                    WW: {processingMode === "research" ? "2000" : customWW} / WL:{" "}
+                    {processingMode === "research" ? "400" : customWL}
                   </span>
                 </div>
 
@@ -1104,7 +1676,7 @@ export default function MastoidLabApp() {
               <div className="flex items-center gap-4 w-full sm:w-auto">
                 <button
                   onClick={() => setCurrentStep(1)}
-                  className="border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-slate-300 text-xs font-bold px-5 py-2.5 rounded-xl transition shadow-sm"
+                  className="border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-slate-300 text-xs font-bold px-5 py-2.5 rounded-xl transition shadow-sm cursor-pointer"
                 >
                   Proses Berkas Lain
                 </button>
@@ -1116,14 +1688,14 @@ export default function MastoidLabApp() {
               <div className="flex items-center gap-2.5 w-full sm:w-auto">
                 <button
                   onClick={() => handleDownload("png")}
-                  className="w-full sm:w-auto border border-cyan-500/50 bg-cyan-950/30 text-cyan-300 hover:bg-cyan-900/50 font-bold px-5 py-2.5 rounded-xl transition-all text-xs flex items-center justify-center gap-2 shadow-sm"
+                  className="w-full sm:w-auto border border-cyan-500/50 bg-cyan-950/30 text-cyan-300 hover:bg-cyan-900/50 font-bold px-5 py-2.5 rounded-xl transition-all text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer"
                 >
                   <Download className="w-4 h-4 text-cyan-400" />
                   Unduh PNG
                 </button>
                 <button
                   onClick={() => handleDownload("dicom")}
-                  className="w-full sm:w-auto bg-gradient-to-r from-teal-600 to-emerald-500 hover:from-teal-500 hover:to-emerald-400 text-white font-bold px-6 py-2.5 rounded-xl transition-all shadow-lg shadow-teal-500/25 text-xs flex items-center justify-center gap-2 active:scale-95"
+                  className="w-full sm:w-auto bg-gradient-to-r from-teal-600 to-emerald-500 hover:from-teal-500 hover:to-emerald-400 text-white font-bold px-6 py-2.5 rounded-xl transition-all shadow-lg shadow-teal-500/25 text-xs flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
                 >
                   <FileDown className="w-4 h-4" />
                   Unduh DICOM (.dcm)
